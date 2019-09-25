@@ -1,0 +1,129 @@
+---
+title: "HW2"
+author: "NgocTran"
+date: "9/6/2019"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r problem1a,warning=FASLE,include=TRUE,eval=TRUE}
+#Problem1a
+#3.2.4 exercise 4 and 5 
+ggplot(mpg,aes(x=hwy,y=cyl))+geom_point() # scatterplot between hwy and cyl
+ggplot(mpg,aes(x=class,y=drv))+geom_point() #scatterplot betweem class and drw
+#the plot is not usefull because the scatterpoint doesnt show any trend
+#not many datapoints
+
+```
+The second plot doesn’t have sufficient numbers of datapoints to make the scatterplot useful and the class values have many categories, which should be put on bin or box plots
+
+```{r problem1a1,warning=FASLE}
+#3.3.1 exercise 3
+
+View(mpg)
+ggplot(data=mpg)+geom_point(mapping = aes(x=displ,y=hwy,col=cty)) #map cty to color
+ggplot(data=mpg)+geom_point(mapping = aes(x=displ,y=hwy,size=cty)) #map cty to size
+#ggplot(data=mpg)+geom_point(mapping = aes(x=displ,y=hwy,shape=cty)) #map cty to shape
+
+ggplot(data=mpg)+geom_point(mapping = aes(x=displ,y=hwy,col=drv)) #map drv to color
+ggplot(data=mpg)+geom_point(mapping = aes(x=displ,y=hwy,size=drv)) #map drv to size
+ggplot(data=mpg)+geom_point(mapping = aes(x=displ,y=hwy,shape=drv)) #map drv to shape
+
+#aesthetic color and size works fine for both continuous and categorical variables
+#aesthetic shape only works for categorical variables
+```
+Aesthetics color can be applicable for both categorical and continuous variables. For continuous variable, different shades of color will be mapped in continuous manner. As for categorical variable, the discreet color will be mapped in different values.
+Aesthetic size looks similar for both categorical and continuous variable. Continuous variable could be more advantageous in this case because the size reflects high/low values. As for categorical variable with minimal differences, the size would be too necessary to used.
+Aesthetics shape can only be used in categorical variables because it reflects different shape for discreet values. 
+
+```{r problem1a2,warning=FALSE}
+#3.3.1 exercise 4
+ggplot(data=mpg)+geom_point(mapping = aes(x=displ,y=hwy,size=cty,col=cty))
+ggplot(data=mpg)+geom_point(mapping = aes(x=displ,y=hwy,shape=drv,size=drv,col=drv))
+ggplot(data=mpg)+geom_point(mapping = aes(x=displ,y=hwy))+facet_wrap(~class,nrow=2)
+
+#Mapping same variables to multiple-aesthetics, then the data points would be more recognized in 3rd aesthetics with continuous. But categorical variables, the data points would be distinguished by shape and color.
+```
+Mapping same variables to multiple-aesthetics, then the data points would be more recognized in 3rd aesthetics with continuous. But categorical variables, the data points would be distinguished by shape and color.
+
+```{r problem1a3,warning=FALSE}
+#3.3.1. exercise 5
+ggplot(data=mpg)+geom_point(mapping = aes(x=displ,y=hwy,col=displ<5))
+# identify variable displ into TRUE and FALSE 
+```
+With displ<5, the legend shows the variable displ will characterized as Boolean values, TRUE and FALSE
+```{r problem1a4,warning=FALSE}
+#3.5.1 exercise 4
+
+ggplot(data = mpg) + 
+  geom_point(mapping = aes(x = displ, y = hwy)) + 
+  facet_wrap(~ class, nrow = 2)
+#the bins split to different numerical integer
+```
+The advantages of faceting:
+-	Better to investigate individual classes
+-	Split data into many subsets to create multiple variations in the same plot
+-	The aesthetic function in other layers override the defaults aesthetics for that layer only while faceting can wrap into multirow panel of plot and specify direction which split plots along rows and columns
+The disadvantages
+-	aesthetic allows to using colors. With coloring, it is easier to see how the classes are clustered
+-	the variables that are compared wouldn’t follow the dimension from facet
+In big datasets, the coloring from aesthetics is usually better for overall clustering, but if more classes appear in dataset, faceting would be applied
+
+
+```{r problem1b,warning=FALSE}
+#problem1b
+library(lme4)
+mixed<-lmer(hwy~displ+(1+displ|drv),data=mpg)
+mpg$fit_mix<-predict(mixed)
+ggplot(data=mpg,aes(x=displ,y=hwy))+geom_point(alpha=0.2)+facet_wrap(~drv)+
+  geom_smooth(method="loess")+
+  geom_line(aes(y=fit_mix),size=0.75)+
+  labs(y="Highway MPG",x="Displacement")+
+  theme_light()
+```
+
+```{r problem4a, warning=FALSE}
+#problem4
+#problem4a: explore missingness 
+#Use Amelia packages
+library(Amelia)
+??Amelia
+packageDescription("Amelia")
+help(package="Amelia")
+require(Amelia)
+data(freetrade) #loaddata
+summary(freetrade) #explore data 
+#summary(lm(tariff ~ polity + pop + gdp.pc + year + country,data = freetrade)) #explore data
+#remove the country because the non-numerical value could affect the validity of Amelia resulst
+f_boottrap<-freetrade[,-2] 
+missmap(f_boottrap) #from Amelia packages
+```
+
+The data is bootstrapped to remove the variable country. This happens because Amelia package works well with numeric characters. The presence of non-numeric variable affect the results
+The missingness map from Amelia package reveal missing value in tan color and observed value in blue. The tariff rate is the most missing variables. Variables, (intresmi) and (fivop), are missing mostly of each cross section 
+```{r problem4a1, warning=FALSE}
+library(mice) #mice packages
+md.pairs(freetrade)
+md.pattern(freetrade)
+```
+Mice packages gives the information for missingness of variables in respect to the other variables. In the form of matrix, 
+From mm table, 58 missing values for tariff variables, 18 missing values for fiveop variable, 13 missing values for intersmi variables
+```{r problem4a2, warning=FALSE}
+library(VIM) #VIM packages
+# Use "aggr" function to also get overall information on missing
+
+f<-aggr(freetrade)
+summary(f)
+# use VIM function "marginplot" to get a scatter plot that includes information on missing values
+marginplot(freetrade[c("tariff","intresmi")], col = c("blue", "red", "orange"))
+# all plots have Missing Information
+scattmatrixMiss(freetrade)
+
+```
+
