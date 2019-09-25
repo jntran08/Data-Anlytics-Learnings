@@ -1,0 +1,253 @@
+---
+title: "HW3_1"
+author: "NgocTran"
+date: "9/15/2019"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+*loading r packages*
+
+```{r packages, include=FALSE,message=FALSE,warning=FALSE}
+library(tidyverse)
+library(mlbench)
+library(devtools)
+library(ggbiplot)
+library(MASS)
+library(Rtsne)
+library(plotly)
+library(caret)
+```
+
+## Problem1. Glass Data
+
+  load dataset Glass, using mlbench package Identify duplicated row. Then removing it and store data to Glassn
+
+```{r problem1, include=TRUE,message=FALSE,warning=FALSE}
+#load data Glass
+data("Glass")
+#remove one duplicate row on mlbench data
+duplicatedrow<-duplicated(Glass)
+#create new data Glass_new with removing duplicated row
+Glassn<-Glass[!(duplicatedrow),]
+```
+
+**(a) Mathematics of PCA**
+    
+  i. Create correlation matrix of all numerical attributes in Glassdata.
+    Store in new obj corMat
+
+```{r problem1ai,include=TRUE,message=FALSE,warning=FALSE}
+#remove column 10 Type because it is a categorial varaibles
+#create correlation matrix
+corMat<-cor(Glassn[,-10])
+```
+
+  ii.compute eigenvalues and eigenvectors of corMat
+
+```{r problem1aii,include=TRUE,message=FALSE,warning=FALSE}
+#compuet eigenvalues and eigen vectors
+eigenValues <- eigen(corMat)$values
+eigenVectors <- eigen(corMat)$vectors
+eigenVectors[,1] #show 1st eigen vectors
+```
+
+  iii. Use prcomp to compute the principal components of Glass attributes
+  
+```{r problem1aiii,include=TRUE,message=FALSE,warning=FALSE}
+Glassn.pca<-prcomp(Glassn[,-10],scale=T)
+#Show only PCA vectors
+Glassn.pca$rotation[,1] # show the PC1 
+```
+
+  iv. Compare results from (ii) and (iii)
+  
+  The eigen vectors and principal components have same maginitudes (or absolute values) but different sign in the vectors. correlation matrix and PCA are calculated from the basic Pearson model to get the covariance values. The eigenvalues calculated from correlation matrix is used to preserve the variance of original data. The signs are different becaue the direction chosen for each method are different in assigned to be positive and negative
+
+  v. Using R demonstrate PC1 and PC2 from (iii) are orthogonal
+  
+  the orthogonal vectors have the product of 0
+  
+```{r problem1av,include=TRUE,message=FALSE,warning=FALSE}
+Glassn.pca$x[,1]%*%Glassn.pca$x[,2]
+```  
+  
+  the inner product of PC1 and PC2 is -1.723066e-13, very close to 0 (cos(pi/2)=0). Therefore, the 2 vectors are orthogonal
+  
+**(b) Application of PCA**
+  
+  i. Provide visualizations of the principal component analysis results from the Glass data. Consider incorporating the glass type to group and color your biplot.
+
+```{r problem1bi,include=TRUE,message=FALSE,warning=FALSE,fig.height=4,fig.width=5}
+plot(Glassn.pca)
+```  
+
+  The plot shows the variances explained on each principle component (PC) in Glass data. Based on variances values and ranking, PC1 and PC2 preserve higher variances. Therefore, we reduce data dimension to PC1 and PC2 
+
+```{r problem1bi1,include=TRUE,message=FALSE,warning=FALSE,echo=FALSE,fig.width=6,fig.height=4}
+ggbiplot(Glassn.pca,choices=c(1,2),groups=Glassn$Type,obs.scale = 1, var.scale = 1, 
+         ellipse=TRUE,circle = TRUE,varname.size = 5)+
+         scale_color_discrete(name = '') + 
+        theme(legend.direction = 'horizontal')
+```  
+
+  ii. Provide an interpretation of the first two prinicpal components the Glass data.
+  
+* The ggbiplot reveals PC2 plotted against PC1 based on different types of Glass
+* Based on small angles among vectors, elements Ca and RI are correlated or elements Na and Al are correlated, elements K and Si are positive correlated
+* Based on 180 degree angle among vectors, elements Ca/ RI and K/Si are negatively correlate
+* Vectors Ba and K/Si formed almost 90 degrees, they are not likely to be correlated
+* Vectors Ba and Ca/RI formed almost 90 degrees, they are not likely to be correlated
+* Elements Ba, Na, Mg, Ca have strong influence on PC2
+* Elements Ca, RI, Al have strong influence on PC1
+* The plot also reveal 3 clusters of Glass
+  + Cluster 1 includes mostly type 1 and 3 and based on PC1
+  + 2 Clusters (mostly include type 2,5,6 and type 7) are based on PC2
+      
+iii. Based on the the PCA results, do you believe that you can effectively reduce the dimension of the data? If so, to what degree? If not, why?
+
+```{r problem1biii,include=TRUE,message=FALSE,warning=FALSE}
+summary(Glassn.pca)
+``` 
+  
+  Based on the PCA resuts and plots, the proportions of variances are not high enough to effectively reduce the data to 2 or 3 dimensions because the principal components cover no more than 30% of variances and cummulative sum for the 1st 3 PCs are no more than 70% of data.
+  
+**(c) Application of LDA**
+
+  i. Install library MASS. Use the lda method from the MASS package to reduce the Glass data dimensionality.
+
+```{r problem1ci,include=TRUE,message=FALSE,warning=FALSE}
+#Use LDA method to reduce Glassdata
+glass.LDA<-lda(Type~RI+Na+Mg+Al+Si+K+Ca+Ba+Fe,data=Glassn)
+#interpretation LDA result plot(glass.LDA,col=as.integer(Glass$Type))
+glass.LDA
+```  
+
+  ii. How would you interpret the first discriminant function, LD1?
+
+  The first discriminant function, LD1, is a linear equation of 311.8* RI + 2.37* Na + 0.73* Mg+ ...+ -0.504 * Fe. The value for each LD are scaled so that their mean value is zero and its variance is one. 
+  
+  In proportion of trace, the LD1 achives 81.45% of seperation. 
+
+  iii. Use the ldahist function from the MASS package to visualize the results for LD1 and LD2. Comment on the results.
+  
+  Plot LD1 histogram
+  
+```{r problem1ciii1, message=FALSE, warning=FALSE,fig.width=6.5,fig.height=7}
+#Use LDA method to reduce Glassdata in LDA1
+par(mar=rep(2,4))
+glass.LDA.value<-predict(glass.LDA)
+ldahist(glass.LDA.value$x[,1],g=Glassn$Type)
+```  
+
+  Plot LD2 Histogram
+  
+```{r problem1ciii2, message=FALSE, warning=FALSE,fig.width=7,fig.height=7}
+#Use LDA method to reduce Glassdata in LDA2
+par(mar=rep(2,4))
+ldahist(glass.LDA.value$x[,2],g=Glassn$Type)
+``` 
+
+  The histogram stacks the predicted values from LDA model. The length of predicted value represents for the length of dataset. 
+  
+  Since LD1 achieved 81.45% of seperation in Glass data, the seperation could be easily observed on the graph. Group 1, 2  and 3 have predicted values less than zero, group 5, 6 and 7 have predicted values larger than zero. Group 2 and 5 share some slight overlap between zero.
+  
+  LD2 achived 11.68% of data seperation, there are lots of overlap among the groups, except group 5
+
+## Problem2. Facebook metrics
+  
+**2(a)Use PCA to analyze the 11 evaluation features. Provide visualizations, interpretations, and comments as appropriate.**
+
+  read the csv files 
+  
+```{r problem2a,message=FALSE, warning=FALSE, include=TRUE}
+#upload and read data
+fbmetrics<-read.csv(file="FB-metrics.csv", header=TRUE,sep=",") 
+#Use prcomp to generate PCA for 11 features in dataset
+fbmetrics.pca<-prcomp(fbmetrics[,(8:18)],scale=T)
+summary(fbmetrics.pca)
+```
+
+  The results show 11 principal components (PCs) which explained by each feature in linear relationship and also preseverve the variance in the dataset.
+  PC1 covers over 50% of variances while the remaining PCs cover no more than 20% of variances in dataset
+
+  Make plot to show how each PC explained by variances
+```{r problem2a1,message=FALSE, warning=FALSE,echo=FALSE, include=TRUE,fig.height=4,fig.width=5}
+#Use plot to show how each PC explained by variances
+plot(fbmetrics.pca)
+```
+  
+  The plot shows PC1 and PC2 preserve higher variances and ranking. For the purpose of the study, the dataset is reduced to PC1 and PC2
+
+  Make a biplot to show each PC influenced by features
+
+```{r problem2a2,include=TRUE,echo=FALSE,message=FALSE,warning=FALSE,fig.width=6,fig.height=3}
+#make biplot to discover how strongly each feature influences a PC
+for(i in c(2,3,7)){
+fbmetrics[,i]<-as.factor(fbmetrics[,i])
+p<-ggbiplot(fbmetrics.pca,choices=c(1,2),groups=fbmetrics[,i],obs.scale = 0.1, var.scale = 0.1, ellipse=TRUE,circle = TRUE,varname.size = 2)+
+  scale_color_discrete(name = " ") + theme(legend.direction = 'vertical')
+print(p)
+}
+```  
+
+  The biplot shows the influences of each feature on PC1 and PC2, groupped by different categories: Type, Category, and Paid (features prior o post publication. The 3 plots reveals that the data can divides into 2 clusters, depending on PC1 and PC2. One cluster will have positive variance on PC1 and negative variance on PC2 and another cluster have negative variance on PC1 and positive variance on PC2
+  
+**2(b) Use t-SNE from the Rtsne package in R to explore 2 or 3-dimensional representations of the data. Can you find a visualization you find interesting?**
+
+  2-D representations of data
+
+```{r problem2b1,include=TRUE,message=FALSE,warning=FALSE}
+#scaling and centering data
+preproc.paramfbmetrics <- fbmetrics %>% preProcess(method = c("center", "scale")) 
+# Transform the data using the estimated parameters 
+transformedfbmetrics <- preproc.paramfbmetrics %>% predict(fbmetrics)
+set.seed(1) # for reproducibility
+tsne <- Rtsne(transformedfbmetrics[,8:11], dims = 2, perplexity=30, verbose=FALSE, max_iter = 1000,theta=0.2,pca=FALSE)
+```
+
+```{r problem2b1a,include=TRUE,message=FALSE,warning=FALSE,echo=FALSE,fig.width=5,fig.height=2.5}
+# visualizing
+df_tsne<-as.data.frame(tsne$Y)
+ggplot(df_tsne, aes(x=V1,y=V2,color=as.factor(transformedfbmetrics$Category),shape=as.factor(transformedfbmetrics$Type)))+
+  geom_point(size=2)+
+  labs(x="t-sne1",y="t-sne2",col="Category",shape="Type",title = "t-SNE")
+```
+  
+  We barely see any clustering in the plot
+  
+  2-D representations of data, using PCA
+  
+```{r problem2b2,include=TRUE,message=FALSE,warning=FALSE}
+set.seed(1) # for reproducibility
+tsne <- Rtsne(fbmetrics.pca$x[,1:4], dims = 2, perplexity=30, verbose=FALSE, max_iter = 500,theta=0.2,pca=FALSE)
+```
+
+```{r problem2b2a,include=TRUE,message=FALSE,warning=FALSE,echo=FALSE,fig.width=5,fig.height=2.5}
+# visualizing
+df_tsne<-as.data.frame(tsne$Y)
+#plot(tsne$Y, t='n', main="tSNE", xlab="tSNE dimension 1", ylab="tSNE dimension 2", "cex.main"=2, "cex.lab"=1.5)+geom_point()
+ggplot(df_tsne, aes(x=V1,y=V2,color=as.factor(fbmetrics$Type),shape=as.factor(fbmetrics$Paid)))+
+  geom_point(size=2,alpha=0.5)+
+  labs(x="t-sne1",y="t-sne2",col="Category",shape="Type",title = "t-SNE")
+```
+
+  3-D representations of data, using PCA data
+
+```{r problem2b3,include=TRUE,message=FALSE,warning=FALSE,fig.width=5,fig.height=2.5}
+set.seed(1) # for reproducibility
+tsne <- Rtsne(fbmetrics.pca$x[,1:4], dims = 3, perplexity=30, verbose=FALSE, max_iter = 500,theta=0.2,pca=FALSE)
+```
+
+```{r problem2b3a,include=TRUE,message=FALSE,warning=FALSE,echo=FALSE,fig.width=5,fig.height=5}
+# visualizing
+#plot(tsne$Y, t='n', main="tSNE", xlab="tSNE dimension 1", ylab="tSNE dimension 2", "cex.main"=2, "cex.lab"=1.5)+geom_point()
+plot_ly(x=tsne$Y[,1],y=tsne$Y[,2],z=tsne$Y[,3],type="scatter3d",mode="markers",colors="RdYlBu",color=as.factor(fbmetrics$Type))
+```
+* Applying straight from dataframe without PCA, the R-tsne method barely produce any good clustering
+* However, with the improvements of PCA, this method reveals better classification. Based on the plot, we can categorize data into 2 clusters, one cluster mostly include status, and one cluster mostly include link, photo and video
