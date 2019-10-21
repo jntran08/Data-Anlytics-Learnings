@@ -1,0 +1,358 @@
+---
+title: "HW5_Ngoc_Deepankar"
+author: "NgocTran"
+date: "10/14/2019"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include = FALSE}
+library(tidyverse)
+library(VIM)
+library(corrplot)
+library(car)
+library(EnvStats)
+library(mlbench)
+library(ggplot2)
+library(tidyverse)
+library(mice)
+library(VIM)
+library(forcats)
+library(caret)
+library(dplyr)
+library(grid)
+```
+### 1(a) Sale Prices EDA
+  - date columne is removed because there are other column, visitstarttime, showns second which reflect date colum
+  - the dataset is imported and the columns of average missingness more than 40% are removed
+
+```{r EDA_QAQC,include=FALSE,echo=FALSE,message=FALSE,warning=FALSE,fig.height=4,fig.width=7}
+
+train = read_csv("Train.csv")
+test = read_csv("Test.csv")
+
+train = train %>% dplyr::select(-c(date))
+test = test %>% dplyr::select(-c(date))
+
+train = train %>% replace_na(list(newVisits = 0))
+test = test %>% replace_na(list(newVisits = 0))
+
+train %>% mutate_all(is.na) %>% summarise_all(mean) 
+test %>% mutate_all(is.na) %>% summarise_all(mean) 
+
+# Factor lump to get most frequent levels in categorical values 
+train = train %>% dplyr::select(-c(colnames(train %>% mutate_all(is.na) %>% select_if(function(col) mean(col) > 0.4)))) 
+train %>% mutate_all(is.na) %>% summarise_all(mean) 
+train = train %>% mutate_if(is.character, fct_explicit_na, na_level = "None")
+train = train %>% mutate_if(is.factor,fct_lump, n = 10) 
+
+test = test %>% select(-c(colnames(test %>% mutate_all(is.na) %>% select_if(function(col) mean(col) > 0.4)))) 
+test %>% mutate_all(is.na) %>% summarise_all(mean) 
+test = test %>% mutate_if(is.character, fct_explicit_na, na_level = "None") 
+test = test %>% mutate_if(is.character,fct_lump, n = 10) 
+```
+
+  - It is noticeable that most of numeric variables are skewed. 
+  - The visit starttime is much larger than other numeric variable,thus this variable needs to be scaled. 
+  - This happens because most of transactions bring zero revenue/ no customer puchases/ no pageviews.
+
+```{r EDA_a1,include=TRUE,echo=FALSE,message=FALSE,warning=FALSE,fig.height=4,fig.width=7}
+train %>% select_if(is.numeric) %>% 
+             gather() %>%
+             ggplot(aes(value)) + 
+                     facet_wrap(~ key,scales = "free") + 
+                     geom_histogram()
+```
+
+  - The visistStartTime variable is plotted with different countries in multiple boxplots, it shows that the average visistStartTime is around 1.48e+09 sec. Thaland and Vietnam have lagest numbers of outliers than the remaining countries. 
+
+```{r EDA_2,include=TRUE,echo=FALSE,message=FALSE,warning=FALSE,fig.height=4,fig.width=7}
+ggplot(train,aes(x=country,y=visitStartTime,fill=country)) + geom_boxplot() + facet_wrap(~country,scale="free")+ labs(x="Countries",y="Visit Stat Time",title="Boxplot of VisitStartTime for Countries")+ theme(plot.title = element_text(hjust=0.5))
+```
+
+  - The heatmap is constructed for the correlation matrix among numeric variable. 
+  - The lighter color reveals strong correlation. Several correlation variables is observed: (newVisits, isTrueDirec), (newVisits, visitNumber), (pagevies,revenues), (isTrueDirec,visitNumber)
+
+```{r EDA_a3,include=TRUE,echo=FALSE,message=FALSE,warning=FALSE,fig.height=4,fig.width=7}
+
+num_train=train %>% mutate_at("visitStartTime",scale) %>% select_if(is.numeric) %>% drop_na()
+corMat=cor(num_train)
+corMat=abs(round(corMat,2))
+corMat=melt(corMat)
+ggplot(data=corMat,aes(x=Var1,y=Var2,fill=value)) + geom_tile()+
+  ggtitle("Heatmap of correlation matrix of all variables")+
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.x=element_text(angle=90,hjust=1),
+        plot.title=element_text(hjust=0.5))
+```
+
+  - Several catergorical variables are analyzed to see its impacts on revenue. But the categorical variables contain too much categories, we need to lump them together to reduce the cardinality. These plots reveal the top categories have the high frequency in dataset
+```{r EDA_a4,include=TRUE,echo=FALSE,message=FALSE,warning=FALSE,fig.height=4,fig.width=7}
+
+#remove missing values in pageviews
+num_train=train %>% mutate_at("visitStartTime",scale) %>% select_if(is.numeric) %>% drop_na()
+
+ggplot(data=num_train,aes(x=pageviews,y=revenue))+geom_point()+geom_smooth(method="lm") + ylim(0,2500)
+```
+
+  - Several catergorical variables are analyzed to see its impacts on revenue. But the categorical variables contain too much categories, we need to lump them together to reduce the cardinality. These plots reveal the top categories have the high frequency in dataset 
+  
+```{r EDA_a5,include=TRUE,echo=FALSE,message=FALSE,warning=FALSE,fig.height=4,fig.width=7}
+
+par(mfrow=c(5,2))
+train %>% group_by(country) %>% dplyr::summarize(n = n(), mean_rev= mean(revenue)) %>% filter(n > 1000) %>% arrange(desc(n)) %>% 
+  ggplot(aes(country, mean_rev, color = as.factor(n))) + geom_point(size=5)+theme(axis.text.x = element_text(size=11,angle = 45,hjust=1))
+
+train %>% group_by(operatingSystem) %>% dplyr::summarize(n = n(), mean_rev= mean(revenue)) %>% filter(n > 1000) %>% arrange(desc(n)) %>% 
+  ggplot(aes(operatingSystem, mean_rev, color = as.factor(n))) + geom_point(size=5)+theme(axis.text.x = element_text(size=11))
+
+train %>% group_by(subContinent) %>% dplyr::summarize(n = n(), mean_rev= mean(revenue)) %>% filter(n > 1000) %>% arrange(desc(n))  %>% 
+  ggplot(aes(subContinent, mean_rev, color = as.factor(n))) + geom_point(size=4)+theme(axis.text.x = element_text(size=10,angle = 45,hjust=1))
+
+train %>% group_by(source) %>% dplyr::summarize(n = n(), mean_rev= mean(revenue)) %>% filter(n > 1000) %>% arrange(desc(n))  %>% 
+  ggplot(aes(source, mean_rev, color = as.factor(n))) + geom_point(size=8) + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+train %>% group_by(browser) %>% dplyr::summarize(n = n(), mean_rev= mean(revenue)) %>% filter(n > 1000) %>% arrange(desc(n))  %>% 
+  ggplot(aes(browser, mean_rev, color = as.factor(n))) + geom_point(size=5)
+
+train %>% group_by(deviceCategory) %>% dplyr::summarize(n = n(), mean_rev= mean(revenue)) %>% filter(n > 1000) %>% arrange(desc(n))  %>% 
+  ggplot(aes(deviceCategory, mean_rev, color = as.factor(n))) + geom_point(size=5)
+
+train %>% group_by(continent) %>% dplyr::summarize(n = n(), mean_rev= mean(revenue)) %>% filter(n > 1000) %>% arrange(desc(n))  %>% 
+  ggplot(aes(continent, mean_rev, color = as.factor(n))) + geom_point(size=5)
+
+train %>% group_by(channelGrouping) %>% dplyr::summarize(n = n(), mean_rev= mean(revenue)) %>% filter(n > 1000) %>% arrange(desc(n))  %>% 
+  ggplot(aes(channelGrouping, mean_rev, color = as.factor(n))) + geom_point(size=5)
+
+train %>% group_by(medium) %>% dplyr::summarize(n = n(), mean_rev= mean(revenue)) %>% filter(n > 1000) %>% arrange(desc(n))  %>% 
+  ggplot(aes(medium, mean_rev, color = as.factor(n))) + geom_point(size=5)
+```
+
+  - Log Transformation for revenue 
+
+```{r EDA_a5,include=TRUE,echo=FALSE,message=FALSE,warning=FALSE,fig.height=4,fig.width=7}
+hist(train$revenue,
+     breaks = 100,
+     main = "Histogram of revenue", xlab="Revenue")
+
+symbox(train$revenue, powers = c(4,3,2,1,0,-0.5,-1,-2,-3),main = "Symbox of revenue", ylab = "revenue")
+
+hist(log(data$revenue + 0.1),
+     main = paste("K Symbox log transformed"),
+     col="red", 
+     breaks = 20)
+
+
+hist(log(train$revenue + 1),
+     main = paste("K Symbox log transformed"),
+     col="red", 
+     breaks = 15,xlab="Revenue")
+
+```
+
+
+### 1(a) Sale Prices Data Preparation 
+``` {r DP_1,include=TRUE,echo=FALSE,message=FALSE,warning=FALSE,fig.height=4,fig.width=7}
+#read and initial wrangling
+train= read_csv("Train.csv")
+test = read_csv("Test.csv")
+```
+
+  - Wrangling and factor lumping are processed on train dataset
+  
+```{r DP_2_train,include=TRUE,echo=FALSE,message=FALSE,warning=FALSE,fig.height=4,fig.width=7}
+# call function getmode to get mode of catergorical variables
+getmode <- function(v) {
+  uniqv <- unique(v)
+  uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+#wrangle after combine both data sets
+train  = train %>% replace_na(list(newVisits = 0)) #set missing value of newVisits as 0 
+#group by customer id and summarize the target and the numerical input variables
+train %>% mutate_all(is.na) %>% summarise_all(mean) %>% glimpse
+train = train %>% mutate_if(is.character, fct_explicit_na, na_level = "None") %>% glimpse 
+train = train %>%  group_by(custId) %>% summarize(visitNumber = max(visitNumber, na.rm = TRUE),
+                                                  pageviews = sum(pageviews, na.rm = TRUE),
+                                                  country = getmode(country),
+                                                  operatingSystem =getmode(operatingSystem),
+                                                  browser = getmode(browser),
+                                                  
+                                                  deviceCategory= getmode(deviceCategory),
+                                                  continent=getmode(continent),
+                                                  revenue = sum(revenue, na.rm = TRUE),
+                                                  visitStartTime= sum(visitStartTime, na.rm = TRUE),
+                                                  timeSinceLastVisit= sum(timeSinceLastVisit, na.rm = TRUE),
+                                                  maxBounces = max(ifelse(is.na(bounces),0,bounces)),
+                                                
+                                                  #isTrueDirectTotal=sum(isTrueDirect,na.rm=TRUE),
+                                                  isMobileTotal=sum(isMobile, na.rm = TRUE)) %>% glimpse                   
+                                                                     
+#Transformations and Factor Lumping on Train
+train = train %>% mutate(revenue = log(revenue+1)) %>% glimpse #log transform numerics
+
+#train = train %>% mutate(pageviews = log(pageviews)) %>% glimpse #log transform numerics
+#train = train %>% mutate(visitNumber = log(visitNumber)) %>% glimpse
+train = train %>% mutate(country = fct_lump(country, n= 4)) %>% glimpse
+train = train %>% mutate(operatingSystem = fct_lump(operatingSystem, n= 4)) 
+train = train %>% mutate(browser = fct_lump(browser, n= 4)) 
+#train = train %>% mutate(referralPath = fct_lump(referralPath, n= 4))
+train = train %>% mutate(deviceCategory = fct_lump(deviceCategory, n= 4))
+train = train %>% mutate(continent = fct_lump(continent, n= 4)) 
+```
+
+  - Wrangling and factor lumping are processed on test dataset
+
+```{r DP_2_test,include=TRUE,echo=FALSE,message=FALSE,warning=FALSE,fig.height=4,fig.width=7}
+
+#group by customer id and summarize the target and the numerical input variables
+test  = test %>% replace_na(list(newVisits = 0))
+test = test %>% dplyr::select(-c(date, medium)) %>% glimpse
+test %>% mutate_all(is.na) %>% summarise_all(mean) %>% glimpse
+test = test %>% mutate_if(is.character, fct_explicit_na, na_level = "None") %>% glimpse 
+test = test  %>% group_by(custId) %>% summarize(
+                                                visitNumber = max(visitNumber, na.rm = TRUE),
+                                                pageviews = sum(pageviews, na.rm = TRUE),
+                                                country = getmode(country),
+                                                operatingSystem =getmode(operatingSystem),
+                                                browser = getmode(browser),
+                                               
+                                                deviceCategory= getmode(deviceCategory),
+                                                continent=getmode(continent),
+                                                visitStartTime= sum(visitStartTime, na.rm = TRUE),
+                                                timeSinceLastVisit= sum(timeSinceLastVisit, na.rm = TRUE),
+                                                maxBounces = max(ifelse(is.na(bounces),0,bounces)),
+                                                
+                                                #isTrueDirectTotal=sum(isTrueDirect,na.rm=TRUE),
+                                                isMobileTotal=sum(isMobile, na.rm = TRUE)) 
+
+#Transformations and Factor Lumping on Test
+
+#test = test %>% mutate(pageviews = log(pageviews)) %>% glimpse #log transform numerics
+#test = test %>% mutate(visitNumber = log(visitNumber)) %>% glimpse
+
+test = test %>% mutate(country = fct_lump(country, n= 4)) %>% glimpse
+test = test %>% mutate(operatingSystem = fct_lump(operatingSystem, n= 4)) 
+test = test %>% mutate(browser = fct_lump(browser, n= 4)) 
+#test = test %>% mutate(referralPath = fct_lump(referralPath, n= 4)) 
+test = test %>% mutate(deviceCategory = fct_lump(deviceCategory, n= 4))
+test = test %>% mutate(continent = fct_lump(continent, n= 4))
+```
+
+  - One hot encoding and check for missingness
+  
+```{r DP_3,include=TRUE,echo=FALSE,message=FALSE,warning=FALSE,fig.height=4,fig.width=7}
+# one hot encoding missinggness on train
+train = train %>% mutate_at(vars(ends_with("Id")), as.numeric) %>% glimpse #set sessionId and custId to numeric as we dont want to one hot encode these variables
+dmy = dummyVars("~.", data = train, fullRank = T)
+train = data.frame(predict(dmy, newdata = train))
+train %>% mutate_all(is.na) %>% summarise_all(mean) %>% glimpse #look at missingness
+
+# one hot encoding missingness on test
+test = test %>% mutate_at(vars(ends_with("Id")), as.numeric) %>% glimpse #set sessionId and custId to numeric as we dont want to one hot encode these variables
+dmy = dummyVars("~.", data = test, fullRank = T)
+test = data.frame(predict(dmy, newdata = test))
+test %>% mutate_all(is.na) %>% summarise_all(mean) %>% glimpse #look at missingness
+
+# set custID and sessionID back to character
+train = train %>% mutate_at(vars(ends_with("Id")), as.character) %>% glimpse
+test = test %>% mutate_at(vars(ends_with("Id")), as.character) %>% glimpse
+```
+
+### 1(c) Sale Prices Modeling
+
+```{r lm_1,include=TRUE,echo=FALSE,message=FALSE,warning=FALSE,fig.height=4,fig.width=7}
+#build model with all variables
+fit_all = lm(revenue~., data = train[,-1])
+summary(fit_all)
+AIC(fit_all)
+#Run AIC and anova to show the result 
+library(MASS)
+stepAIC(fit_all)
+b<- stepAIC(fit_all)
+b$anova
+#calculate RMSE
+RMSE=(sum(fit_all$residuals^2)/length(fit_all$residuals))^(1/2)
+RMSE
+```
+
+```{r lm_2,include=TRUE,echo=FALSE,message=FALSE,warning=FALSE,fig.height=4,fig.width=7}
+
+#after backward AIC tests 
+fit_all= lm(formula = revenue ~ visitNumber + pageviews + country.United.States + 
+              operatingSystem.iOS + operatingSystem.Macintosh + operatingSystem.Windows + 
+              operatingSystem.Other + browser.Firefox + browser.Internet.Explorer + 
+              browser.Safari + browser.Other + visitStartTime + timeSinceLastVisit + 
+              maxBounces, data = train)
+summary(fit_all)
+AIC(fit_all)
+#calculate RMSE
+RMSE=(sum(fit_all$residuals^2)/length(fit_all$residuals))^(1/2)
+RMSE
+```
+
+```{r lm_3,include=TRUE,echo=FALSE,message=FALSE,warning=FALSE,fig.height=4,fig.width=7}
+#only numerical fit 
+fit_all=lm(formula = revenue ~ visitNumber + pageviews + visitNumber + timeSinceLastVisit+ 
+             visitStartTime + maxBounces + 
+             #isTrueDirectTotal+
+             isMobileTotal, data = train)
+summary(fit_all)
+AIC(fit_all)
+#calculate RMSE
+RMSE=(sum(fit_all$residuals^2)/length(fit_all$residuals))^(1/2)
+RMSE
+```
+
+```{r pred_1,include=TRUE,echo=FALSE,message=FALSE,warning=FALSE,fig.height=4,fig.width=7}
+#predict 
+rev_pred = predict(fit_all, test) #predict revenue
+
+test$predRevenue = rev_pred #append revenue to test_trsf
+
+test = test %>% mutate(predRevenue = replace(predRevenue, predRevenue < 0, 0.00)) %>% glimpse  #set negative revenue prediction to 0
+
+test <- test %>% mutate_at(vars(ends_with("Id")), as.character) %>% glimpse #set sessionId  and custId to character 
+
+summary_test_out = aggregate(test$predRevenue, list(custId = as.numeric(test$custId)), sum) #output preparation
+colnames(summary_test_out)[2] = "predRevenue" #change column names
+glimpse(summary_test_out)
+summary_test_out = summary_test_out  %>% #mutate(predRevenue = log(predRevenue + 1)) %>% 
+  glimpse 
+
+#write.csv(summary_test_out,file = "lm_pred_test8.csv") #output to csv
+
+
+```
+
+  - Visualization 
+  
+```{r pred_2, ,include=TRUE,echo=FALSE,message=FALSE,warning=FALSE,fig.height=4,fig.width=7}
+# visualization for best models
+#plot(x=train$revenue,y=predict(fit_all, train),ylim=c(0,10))
+ggplot(test,aes(x=pageviews,y=predRevenue))+geom_point()+geom_smooth(method="lm",color="blue",size=1)+labs(y="Predicted Revenue")
+
+```
+
+  - K-Fold Crossvalidation
+
+```{r cvkfold_1, ,include=TRUE,echo=FALSE,message=FALSE,warning=FALSE,fig.height=4,fig.width=7}
+fitControl <-trainControl(method="repeatedcv",number=10,repeats=7) # set fitcontrol 
+  set.seed(825)
+  fit_0 <- train(revenue ~ ., data = train[,-1], 
+                 method = "lm", 
+                 trControl = fitControl,
+                 preProcess = c("center","scale"),
+                 verbose = FALSE)
+  
+  summary(fit_0)
+#calculate RMSE
+RMSE=(sum(fit_all$residuals^2)/length(fit_all$residuals))^(1/2)
+RMSE
+```
