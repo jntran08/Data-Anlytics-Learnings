@@ -1,0 +1,342 @@
+---
+title: "HW7"
+author: "Deepankar Dangwal"
+date: "11/16/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(VIM)
+library(corrplot)
+library(car)
+library(EnvStats)
+library(mlbench)
+library(ggplot2)
+library(mice)
+library(forcats)
+library(caret)
+library(dplyr)
+library(grid)
+library(pls)
+library(MASS)
+library(glmnet)
+library(elasticnet)
+library(earth)
+library(ModelMetrics)
+library(plotmo)
+library(stats)
+library(randomForest)
+library(gbm)
+library(pROC)
+library(neuralnet)
+```
+
+###Read datasets
+```{r}
+
+train= read_csv("hm7-Train.csv")
+test = read_csv("hm-7-Test.csv")
+
+train %>% mutate_all(is.na) %>% summarise_all(mean) %>% glimpse
+```
+
+### combine and wrangle
+```{r}
+testID = test$patientID
+trainID = train$patientID
+readmitted = train$readmitted
+readmitted = gsub(0,"No",readmitted)
+readmitted = gsub(1,"Yes",readmitted)
+combine = rbind(train %>% dplyr::select(-c(readmitted)), test)
+combine %>% mutate_all(is.na) %>% summarise_all(mean) %>% glimpse
+
+#remove vars with near 0 variance
+combine = combine %>% dplyr:: select(-c(nearZeroVar(combine)))
+
+#patientID
+combine = combine %>% mutate_at(c("patientID"), as.character) %>% glimpse 
+
+#race
+combine = combine %>% mutate_at(c("race"), fct_explicit_na, na_level = "Undisclosed") %>% glimpse
+combine %>% mutate_all(is.na) %>% summarise_all(mean) %>% glimpse
+combine %>% group_by(race) %>% dplyr::summarize(n = n()) %>% filter(n > 100) %>% arrange(desc(n)) %>% glimpse
+#combine = combine %>% mutate(race = fct_lump(race, n= 6)) %>% glimpse
+
+#gender
+combine = combine %>% mutate_at(c("gender"), as.factor) %>% glimpse
+combine %>% group_by(gender) %>% dplyr::summarize(n = n()) %>% filter(n > 1) %>% arrange(desc(n)) %>% glimpse
+
+#age
+combine = combine %>% mutate_at(c("age"), as.factor) %>% glimpse
+combine %>% group_by(age) %>% dplyr::summarize(n = n()) %>% filter(n > 100) %>% arrange(desc(n)) %>% glimpse
+
+#Admission_type
+combine = combine %>% mutate_at(c("admission_type"), as.factor) %>% glimpse
+combine %>% group_by(admission_type) %>% dplyr::summarize(n = n()) %>% filter(n > 1000) %>% arrange(desc(n)) %>% glimpse
+
+#discharge_disposition
+combine = combine %>% mutate_at(c("discharge_disposition"), as.factor) %>% glimpse
+combine %>% group_by(discharge_disposition) %>% dplyr::summarize(n = n()) %>% filter(n > 1000) %>% arrange(desc(n)) %>% glimpse
+combine = combine %>% mutate(discharge_disposition = fct_lump(discharge_disposition, n= 6)) %>% glimpse
+
+#admission_source
+combine = combine %>% mutate_at(c("admission_source"), as.factor) %>% glimpse
+combine %>% group_by(discharge_disposition) %>% dplyr::summarize(n = n()) %>% filter(n > 1000) %>% arrange(desc(n)) %>% glimpse
+
+
+#medical_specialty
+combine = combine %>% mutate_at(c("medical_specialty"), as.factor) %>% glimpse
+combine = combine %>% mutate_at(c("medical_specialty"), fct_explicit_na, na_level = "Undisclosed") %>% glimpse
+combine %>% group_by(medical_specialty) %>% dplyr::summarize(n = n()) %>% filter(n > 1000) %>% arrange(desc(n)) %>% glimpse
+combine = combine %>% mutate(medical_specialty= fct_lump(medical_specialty, n= 10)) %>% glimpse
+
+#diagnosis
+combine = combine %>% mutate_at(c("diagnosis"), as.factor) %>% glimpse
+combine = combine %>% mutate_at(c("diagnosis"), fct_explicit_na, na_level = "Undisclosed") %>% glimpse
+combine %>% group_by(diagnosis) %>% dplyr::summarize(n = n()) %>% filter(n > 1000) %>% arrange(desc(n)) %>% glimpse
+combine = combine %>% mutate(diagnosis= fct_lump(diagnosis, n= 18)) %>% glimpse
+combine %>% mutate_all(is.na) %>% summarise_all(mean) %>% glimpse
+
+#everything else
+combine = combine %>% mutate_at(c(17:25), as.factor) %>% glimpse
+
+#scale numeric variables
+combine = combine %>% mutate_if(is.numeric, scale) %>% glimpse
+
+```
+
+
+### separate
+```{r}
+train_trsf = combine %>% filter(patientID %in% as.character(trainID))
+train_trsf = cbind(train_trsf, readmitted)
+train_trsf = train_trsf %>% mutate_at(c("patientID"), as.character) %>% glimpse
+train_trsf = train_trsf %>% mutate_at(c("readmitted"), as.factor) %>% glimpse
+
+
+test_trsf = combine %>% filter(patientID %in% as.character(testID))
+test_trsf = test_trsf %>% mutate_at(c("patientID"), as.character) %>% glimpse
+```
+
+###logistic regression
+```{r}
+glm_fit <- glm(readmitted ~ ., data = train_trsf %>% dplyr::select(-c(patientID)), family = "binomial")
+stepAIC(glm_fit)
+
+formula = readmitted ~ race + gender + age + admission_type + 
+    discharge_disposition + admission_source + time_in_hospital + 
+    medical_specialty + num_procedures + num_medications + number_outpatient + 
+    number_emergency + number_inpatient + diagnosis + number_diagnoses + 
+    max_glu_serum + A1Cresult + metformin + rosiglitazone + tolazamide + 
+    insulin + metforminrosiglitazone + diabetesMed  #formula obtained from stepAIC
+
+
+#5 fold cross validation using caret
+control = trainControl(method = "repeatedcv", number = 5, classProbs = TRUE, summaryFunction=mnLogLoss)
+set.seed(42)
+glm_fit = train(formula, data= train_trsf %>% dplyr::select(-c(patientID)), 
+                method = "glm", family = binomial, metric = "logLoss", trControl = control, verbose = TRUE)
+summary(glm_fit)
+
+#predict on train
+pred_train = predict(glm_fit,newdata = train_trsf %>% dplyr::select(-c(patientID)), type = "prob")
+
+#evaluation
+rocCurve   <- pROC::roc(response = train_trsf$readmitted,
+                      predictor = pred_train[,2],
+                      levels = rev(levels(train_trsf$readmitted)))
+plot(rocCurve, print.thres = "best")
+auc_glm = auc(rocCurve)
+
+
+pred_train = factor(ifelse(pred_train[, "Yes"] > 0.5, "Yes", "No"))
+caret::confusionMatrix(pred_train, train_trsf$readmitted)
+
+#predict on test dataset
+pred = predict(glm_fit,newdata = test_trsf %>% dplyr::select(-c(patientID)), type = "prob")
+test_trsf$predReadmit = pred$Yes #append predReadmit to test_trsf
+
+summary_test_out = test_trsf %>% dplyr::select(c(patientID, predReadmit)) %>% glimpse
+
+write.csv(summary_test_out,file = "glm_pred_test1.csv", row.names  = F)
+```
+
+
+### random forest
+``` {r}
+set.seed(42)
+control <- trainControl(method="cv", number=2, classProbs=TRUE, summaryFunction=mnLogLoss, verboseIter = TRUE)
+#create a tuning grid
+tunegrid <- expand.grid(mtry = (1:10)*2)
+
+#train
+rf_fit <- train(readmitted ~ ., data= train_trsf %>% dplyr::select(-c(patientID)), 
+                method="rf", metric="logLoss", trControl=control, tuneGrid = tunegrid,  verbose = TRUE)
+# display results
+plot(rf_fit)
+
+#best tuned model
+rf_best = randomForest(readmitted ~ ., data= train_trsf %>% dplyr::select(-c(patientID)),
+                       ntree = 1000, mtry = 12)
+
+#predict on train dataset
+pred_train = predict(rf_best,newdata = train_trsf %>% dplyr::select(-c(patientID)), type = "prob")
+
+#evaluation
+rocCurve   <- pROC::roc(response = train_trsf$readmitted,
+                      predictor = pred_train[,2],
+                      levels = rev(levels(train_trsf$readmitted)))
+plot(rocCurve, print.thres = "best")
+auc_rf = auc(rocCurve)
+
+pred_train = factor(ifelse(pred_train[, "Yes"] > 0.5, "Yes", "No"))
+caret::confusionMatrix(pred_train, train_trsf$readmitted)
+
+#predict for test dataset
+pred = predict(rf_best,newdata = test_trsf %>% dplyr::select(-c(patientID)), type = "prob")
+
+test_trsf$predReadmit = pred[,2] #append predReadmit to test_trsf
+
+summary_test_out = test_trsf %>% dplyr::select(c(patientID, predReadmit)) %>% glimpse
+
+write.csv(summary_test_out,file = "gbm_pred_test1.csv", row.names  = F)
+```
+
+### Gradient Boosting with gbm
+```{r}
+set.seed(42)
+control <- trainControl(method="cv", number=5, classProbs=TRUE, summaryFunction=mnLogLoss, verboseIter = TRUE)
+hyper_grid =  expand.grid(n.trees = c(500,1000,1500), interaction.depth = c(5,7,9,11,13), shrinkage = 0.01, n.minobsinnode = c(1,10))
+
+gbm_fit <- train(readmitted ~ ., data= train_trsf %>% dplyr::select(-c(patientID)), 
+                method="gbm", distribution = "bernoulli", metric="logLoss", 
+                trControl=control, tuneGrid = hyper_grid, verbose = TRUE)
+plot(gbm_fit)
+
+#best tuned model
+hyper_grid_best =  expand.grid(n.trees = 1500, interaction.depth = 11, shrinkage = 0.01, n.minobsinnode = 10) #parameters for best gbm model
+
+gbm_best <- train(readmitted ~ ., data= train_trsf %>% dplyr::select(-c(patientID)), 
+                method="gbm", distribution = "bernoulli", metric="logLoss", 
+                trControl=control, tuneGrid = hyper_grid_best, verbose = TRUE)
+
+
+#predict on train dataset
+pred_train = predict(gbm_best,newdata = train_trsf %>% dplyr::select(-c(patientID)), type = "prob")
+
+#evaluation
+rocCurve   <- pROC::roc(response = train_trsf$readmitted,
+                      predictor = pred_train[,2],
+                      levels = rev(levels(train_trsf$readmitted)))
+plot(rocCurve, print.thres = "best")
+auc_gbm = auc(rocCurve)
+
+pred_train = factor(ifelse(pred_train[, "Yes"] > 0.5, "Yes", "No"))
+caret::confusionMatrix(pred_train, train_trsf$readmitted)
+
+#predict on test dataset
+pred = predict(gbm_best,newdata = test_trsf %>% dplyr::select(-c(patientID)), type = "prob")
+
+test_trsf$predReadmit = pred$Yes #append predReadmit to test_trsf
+
+summary_test_out = test_trsf %>% dplyr::select(c(patientID, predReadmit)) %>% glimpse
+
+write.csv(summary_test_out,file = "gbm_pred_test4.csv", row.names  = F)
+```
+
+###MARS
+```{r}
+set.seed(42)
+control <- trainControl(method="cv", number=2, classProbs=TRUE, summaryFunction=mnLogLoss, verboseIter = TRUE)
+#create a tuning grid
+hyper_grid <- expand.grid(.degree = c(2,3,4,5), .nprune = c(8, 12,16,20, 24))
+
+mars_fit <- train(readmitted ~ ., data= train_trsf %>% dplyr::select(-c(patientID)),
+                  method = "earth",
+                  metric = "logLoss",
+                  trControl = control,
+                  tuneGrid = hyper_grid)
+plot(mars_fit)
+
+#best tuned model
+hyper_grid_best <- expand.grid(.degree = 2, .nprune = 16)
+mars_best <- train(readmitted ~ ., data= train_trsf %>% dplyr::select(-c(patientID)),
+                  method = "earth",
+                  metric = "logLoss",
+                  trControl = control,
+                  tuneGrid = hyper_grid_best)
+
+#predict on train dataset
+pred_train = predict(mars_best,newdata = train_trsf %>% dplyr::select(-c(patientID)), type = "prob")
+
+#evaluation
+rocCurve   <- pROC::roc(response = train_trsf$readmitted,
+                      predictor = pred_train[,2],
+                      levels = rev(levels(train_trsf$readmitted)))
+plot(rocCurve, print.thres = "best")
+auc_mars = auc(rocCurve)
+
+pred_train = factor(ifelse(pred_train[, "Yes"] > 0.5, "Yes", "No"))
+caret::confusionMatrix(pred_train, train_trsf$readmitted)
+
+#predict on test dataset
+pred = predict(mars_best,newdata = test_trsf %>% dplyr::select(-c(patientID)), type = "prob")
+
+test_trsf$predReadmit = pred$Yes #append predReadmit to test_trsf
+
+summary_test_out = test_trsf %>% dplyr::select(c(patientID, predReadmit)) %>% glimpse
+
+write.csv(summary_test_out,file = "mars_pred_test1.csv", row.names  = F)
+
+```
+
+### Neural nets
+```{r}
+
+#mlpML
+mlp_grid = expand.grid(layer1 = c(5,10,15,20),
+                       layer2 = c(5,10,15,20),
+                       layer3 = c(5,10,15,20))
+
+mlp_fit = caret::train(readmitted ~ ., data= train_trsf %>% dplyr::select(-c(patientID)),
+                method = "mlpML", maxit = 100, learFunc = "Std_Backpropagation",learnFuncParams = c(0.01,0),
+                trControl = trainControl(method = "cv", number = 10, classProbs=TRUE, 
+                                         summaryFunction=mnLogLoss, verboseIter = TRUE, returnData = FALSE),
+                metric = "logLoss", tuneGrid = mlp_grid, verbose = TRUE)
+
+#best tuned model
+mlp_grid_best = expand.grid(layer1 = 10,
+                            layer2 = 15,
+                            layer3 = 10)
+
+mlp_best = caret::train(readmitted ~ ., data= train_trsf %>% dplyr::select(-c(patientID)),
+                method = "mlpML", maxit = 100, learFunc = "Std_Backpropagation",learnFuncParams = c(0.01,0),
+                trControl = trainControl(method = "cv", number = 10, classProbs=TRUE, 
+                                         summaryFunction=mnLogLoss, verboseIter = TRUE, returnData = FALSE),
+                metric = "logLoss", tuneGrid = mlp_grid_best, verbose = TRUE)
+
+mlp_best
+
+#predict on train dataset
+pred_train = predict(mlp_best,newdata = train_trsf %>% dplyr::select(-c(patientID)), type = "prob")
+
+#evaluation
+rocCurve   <- pROC::roc(response = train_trsf$readmitted,
+                      predictor = pred_train[,2],
+                      levels = rev(levels(train_trsf$readmitted)))
+plot(rocCurve, print.thres = "best")
+auc_mlp = auc(rocCurve)
+
+pred_train = factor(ifelse(pred_train[, "Yes"] > 0.5, "Yes", "No"))
+caret::confusionMatrix(pred_train, train_trsf$readmitted)
+
+#predict on test dataset
+pred = predict(mlp_best,newdata = test_trsf %>% dplyr::select(-c(patientID)), type = "prob")
+
+test_trsf$predReadmit = pred$Yes #append predReadmit to test_trsf
+
+summary_test_out = test_trsf %>% dplyr::select(c(patientID, predReadmit)) %>% glimpse
+
+write.csv(summary_test_out,file = "mlpML_pred_test2.csv", row.names  = F)
+```
