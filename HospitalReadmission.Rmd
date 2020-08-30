@@ -1,6 +1,6 @@
 ---
 title: "HW7"
-author: "Deepankar Dangwal"
+author: "Deepankar Dangwal & Ngoc Tran"
 date: "11/16/2019"
 output: html_document
 ---
