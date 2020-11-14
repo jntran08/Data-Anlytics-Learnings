@@ -1,5 +1,5 @@
 # Intelligent-Data-Analytics-
-Course works from Intelligent Data Analytics
+Analytics works on multiple dataset from Intelligent Data Analytics
 
 These are the codes which I have been working for IDA course
 
