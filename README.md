@@ -9,4 +9,4 @@ HW2 dicusses about Principle Component Analysis
 
 "HospitalReadmission" from Kaggle https://www.kaggle.com/c/2019-5013-hw7
 
-HW8 explores unsupervised learning method on Volve dataset 
+unsupervised learning method is explored for rock type classification on Volve dataset 
